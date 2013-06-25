@@ -134,8 +134,6 @@ namespace ProcNetClient
 
             dSetLabelCountQueue = new DelSetLabelCountQueue(SetLabelCountQueue);
             dEnableControls = new DelEnableControls(EnableControls);
-
-            //checkCode = (ushort)rand.Next(65535);
         }
         
         private void FormProcNetClient_Load(object sender, EventArgs e)
@@ -221,14 +219,6 @@ namespace ProcNetClient
                 return;
             }
 
-            /*//======================================================
-            // test post!!!!
-            HttpWebRequest reqTest = CreateWebRequest2("browser/111/", WebRequestMethods.Http.Post);
-            byte[] bs = Encoding.UTF8.GetBytes("abcdef");
-            WriteWebRequest(reqTest, "application/x-www-form-urlencoded", bs, true);            
-            Close();
-            return;
-            //======================================================*/
 
             
             if (Login())
@@ -243,7 +233,6 @@ namespace ProcNetClient
 
                 Application.DoEvents();
 
-                //Thread.Sleep(100);
 
                 if (checkBoxAutoLoad.Checked)
                 {
@@ -259,7 +248,6 @@ namespace ProcNetClient
                 Close();
             }
 
-            //Application.DoEvents();
 
             loaded = true;
         }
@@ -688,12 +676,6 @@ namespace ProcNetClient
             string html = "";
             try
             {
-                /*req.ContentType = "application/x-www-form-urlencoded";
-                req.ContentLength = bs1.Length;
-                Stream wr2 = req.GetRequestStream();
-                wr2.Write(bs1, 0, bs1.Length);
-                wr2.Close();*/
-
                 WriteWebRequest(req, "application/x-www-form-urlencoded", bs1, true);
 
                 
