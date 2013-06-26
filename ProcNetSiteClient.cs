@@ -58,7 +58,7 @@ namespace ProcNetClient
 
 
         /// <summary>
-        /// Временных ID
+        /// Временный ID
         /// </summary>
         public string TempHash
         {
