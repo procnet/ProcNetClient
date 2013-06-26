@@ -23,19 +23,14 @@ namespace ProcNetClient
 {
     public partial class FormProcNetClient : Form
     {
-        string VersionFull = "";
-        string VersionForCheckUpdates = "1.4";
-
-        const string serverBaseUrl = "http://procnet.ru/";
-
-        const string regProcNetClient = @"Software\ProcNetClient";
-        const string regvalClientId = "ClientId";
-        const string regvalShowNewUsers = "ShowNewUsers";
-        const string regvalDefaultBrowser = "DefaultBrowser";
-        const string regvalPathBrowser = "PathBrowser";
+        const string regPathProcNetClient = @"Software\ProcNetClient";
+        const string regNameClientId = "ClientId";
+        const string regNameShowNewUsers = "ShowNewUsers";
+        const string regNameDefaultBrowser = "DefaultBrowser";
+        const string regNamePathBrowser = "PathBrowser";
 
         const string regPathAutoLoad = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        const string regvalAutoLoad = "ProcNetClient";
+        const string regNameAutoLoad = "ProcNetClient";
 
         
 
@@ -50,30 +45,25 @@ namespace ProcNetClient
 
         private SortedDictionary<int, Process> nowRunning = new SortedDictionary<int, Process>();
 
-        object lSend = new object();
+        //object lSend = new object();
 
-        string guid = null;
 
         Queue<OneUpdate> updatesForSend = new Queue<OneUpdate>();
         object lUpdatesForSend = new object();
 
-        SortedDictionary<string, string> filenamesIconHashes = new SortedDictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
 
-        SHA1 sha = new SHA1Managed();
 
 
         string linkStartSession = null;
 
         bool loaded = false;
 
-        object lWrError = new object();
         
         int lastCountNewMessages = 0;
 
         string linkBalloonTip = null;
 
 
-        string tempHash = "";
 
         int countSendStat = 0;
 
@@ -85,13 +75,10 @@ namespace ProcNetClient
         delegate void DelEnableControls(bool enable);
         DelEnableControls dEnableControls;
 
-        bool sendAllProcesses = false;
 
         bool fullSend = false;
 
-        int usersOnline = 0;
 
-        ushort codeBase = 0x4c9a; // 01001100 10011010
 
 
         string[] browsers = 
@@ -109,6 +96,9 @@ namespace ProcNetClient
 
         };
 
+        ProcNetSiteClient client = new ProcNetSiteClient();
+
+
 
 
         public FormProcNetClient()
@@ -117,9 +107,9 @@ namespace ProcNetClient
 
 
             Assembly a = Assembly.GetExecutingAssembly();
-            VersionFull = a.GetName().Version.ToString();
+            client.VersionFull = a.GetName().Version.ToString();
 
-            this.Text = notifyIcon1.Text = "ProcNetClient " + VersionFull;
+            this.Text = notifyIcon1.Text = "ProcNetClient " + client.VersionFull;
 
 
             this.labelRestart.Visible = false;
@@ -164,7 +154,7 @@ namespace ProcNetClient
             RegistryKey key3 = Registry.CurrentUser.OpenSubKey(regPathAutoLoad);
             if (key3 != null)
             {
-                object path3 = key3.GetValue(regvalAutoLoad);
+                object path3 = key3.GetValue(regNameAutoLoad);
 
                 if (path3 != null && path3.GetType() == typeof(string) && (string)path3 == Application.ExecutablePath)
                 {
@@ -175,23 +165,23 @@ namespace ProcNetClient
             }
 
 
-            RegistryKey key4 = Registry.CurrentUser.OpenSubKey(regProcNetClient, true);
+            RegistryKey key4 = Registry.CurrentUser.OpenSubKey(regPathProcNetClient, true);
 
             if (key4 != null)
             {
-                if (key4.GetValue(regvalDefaultBrowser) != null)
+                if (key4.GetValue(regNameDefaultBrowser) != null)
                 {
-                    checkBoxDefaultBrowser.Checked = (string)key4.GetValue(regvalDefaultBrowser) == "1";
+                    checkBoxDefaultBrowser.Checked = (string)key4.GetValue(regNameDefaultBrowser) == "1";
                 }
 
-                if (key4.GetValue(regvalShowNewUsers) != null)
+                if (key4.GetValue(regNameShowNewUsers) != null)
                 {
-                    checkBoxShowNewUsers.Checked = (string)key4.GetValue(regvalShowNewUsers) == "1";
+                    checkBoxShowNewUsers.Checked = (string)key4.GetValue(regNameShowNewUsers) == "1";
                 }
 
-                if (key4.GetValue(regvalPathBrowser) != null)
+                if (key4.GetValue(regNamePathBrowser) != null)
                 {
-                    comboBoxPathBrowser.Text = (string)key4.GetValue(regvalPathBrowser);
+                    comboBoxPathBrowser.Text = (string)key4.GetValue(regNamePathBrowser);
 
                     if (!File.Exists(comboBoxPathBrowser.Text))
                     {
@@ -213,15 +203,16 @@ namespace ProcNetClient
             Application.DoEvents();
 
 
-            if (CheckVersion())
+            if (client.CheckVersion())
             {
+                UpdateVersion();
                 Close();
                 return;
             }
 
 
-            
-            if (Login())
+
+            if (client.Login(regPathProcNetClient, regNameClientId))
             {
                 Thread th1 = new Thread(new ThreadStart(ThreadViewProcesses));
                 th1.Start();
@@ -252,6 +243,11 @@ namespace ProcNetClient
             loaded = true;
         }
 
+
+        /// <summary>
+        /// Открытие сайта в браузере
+        /// </summary>
+        /// <param name="balloon">"true" - если был щелчок по всплывающему сообщению</param>
         void OpenSite(bool balloon)
         {
             if (!authorise && linkStartSession == null)
@@ -268,14 +264,19 @@ namespace ProcNetClient
             }
             else if (balloon && linkBalloonTip != null)
             {
-                OpenBrowser(serverBaseUrl + linkBalloonTip);
+                OpenBrowser(client.ServerBaseUrl + linkBalloonTip);
             }
             else
             {
-                OpenBrowser(serverBaseUrl + "processes/");
+                OpenBrowser(client.ServerBaseUrl + "processes/");
             }
         }
 
+
+        /// <summary>
+        /// Открытие адреса в браузере
+        /// </summary>
+        /// <param name="url">Ссылка</param>
         void OpenBrowser(string url)
         {
             if (checkBoxDefaultBrowser.Checked)
@@ -288,9 +289,11 @@ namespace ProcNetClient
             }
         }
 
+
         private void FormProcNetClient_FormClosed(object sender, FormClosedEventArgs e)
         {
             closed = true;
+            client.Closed = true;
 
             EnableControls(false);
 
@@ -305,13 +308,17 @@ namespace ProcNetClient
             }
         }
 
+
+        /// <summary>
+        /// Поток проверки процессов
+        /// </summary>
         void ThreadViewProcesses()
         {
             running1 = true;
 
             while (!closed)
             {
-                if (sendAllProcesses)
+                if (client.SendAllProcesses)
                 {
                     nowRunning.Clear();
                 }
@@ -333,9 +340,9 @@ namespace ProcNetClient
                     }
                 }
 
-                if (sendAllProcesses)
+                if (client.SendAllProcesses)
                 {
-                    sendAllProcesses = false;
+                    client.SendAllProcesses = false;
                 }
 
                 Thread.Sleep(200);
@@ -346,11 +353,15 @@ namespace ProcNetClient
                 Thread.Sleep(50);
             }
 
-            Logout(guid);
+            client.Logout();
 
             running1 = false;
         }
 
+
+        /// <summary>
+        /// Поток отсылки информации о процессах на сайт
+        /// </summary>
         void ThreadSendUpdates()
         {
             running2 = true;
@@ -369,7 +380,7 @@ namespace ProcNetClient
                         MessageBox.Show("Ошибка 2");
                     }
 
-                    int prevUsersOnline = usersOnline;
+                    int prevUsersOnline = client.UsersOnline;
 
                     while (true)
                     {
@@ -392,7 +403,29 @@ namespace ProcNetClient
 
                         for (int c = 0; c < 3 && !closed; c++)
                         {
-                            norm = SendUpdatesProcNetClient(updates2);
+                            int c3;
+                            norm = client.SendUpdatesProcNetClient(updates2, out c3);
+
+                            if (c3 > lastCountNewMessages)
+                            {
+                                ShowBalloon("ProcNetClient", "Новые сообщения: " + c3, "messages/");
+                            }
+
+                            if (c3 != lastCountNewMessages)
+                            {
+                                lastCountNewMessages = c3;
+
+                                labelCountNewMessages.Text = "Новые сообщения: " + c3.ToString();
+                                if (c3 > 0)
+                                {
+                                    labelCountNewMessages.ForeColor = Color.Red;
+                                }
+                                else
+                                {
+                                    labelCountNewMessages.ForeColor = SystemColors.ControlText;
+                                }
+                            }
+
                             
                             if (norm || countSendStat == 0)
                             {
@@ -428,7 +461,7 @@ namespace ProcNetClient
 
                     if (countSendStat == 1)
                     {
-                        linkStartSession = serverBaseUrl + "browser/startsession/id/" + tempHash + "/";
+                        linkStartSession = client.ServerBaseUrl + "browser/startsession/id/" + client.TempHash + "/";
 
 
                         this.Invoke(dEnableControls, true);
@@ -439,17 +472,17 @@ namespace ProcNetClient
                         }
                     }
 
-                    if (usersOnline != prevUsersOnline)
+                    if (client.UsersOnline != prevUsersOnline)
                     {
-                        notifyIcon1.Text = "ProcNetClient " + VersionFull + "\r\n" +
-                            "Пользователей онлайн: " + usersOnline.ToString();
+                        notifyIcon1.Text = "ProcNetClient " + client.VersionFull + "\r\n" +
+                            "Пользователей онлайн: " + client.UsersOnline.ToString();
 
-                        if (countSendStat > 1 && usersOnline > prevUsersOnline && checkBoxShowNewUsers.Checked)
+                        if (countSendStat > 1 && client.UsersOnline > prevUsersOnline && checkBoxShowNewUsers.Checked)
                         {
-                            ShowBalloon("Новые пользователи", "Пользователей онлайн: " + usersOnline.ToString(), "users/");
+                            ShowBalloon("Новые пользователи", "Пользователей онлайн: " + client.UsersOnline.ToString(), "users/");
                         }
 
-                        prevUsersOnline = usersOnline;
+                        prevUsersOnline = client.UsersOnline;
                     }
 
 
@@ -464,22 +497,35 @@ namespace ProcNetClient
             running2 = false;
         }
 
+
+        /// <summary>
+        /// Показ кол-ва процессов в очереди отправки
+        /// </summary>
+        /// <param name="count">Кол-во процессов</param>
         void SetLabelCountQueue(int count)
         {
             labelCountInQuerySend.Text = "Процессов в очереди отправки: " + count.ToString();
         }
 
+
+        /// <summary>
+        /// Включение и отключение элементов управления
+        /// </summary>
+        /// <param name="enable">"true" - включить</param>
         void EnableControls(bool enable)
         {
             linkLabelOpenSite.Enabled = enable;
             checkBoxAutoLoad.Enabled = enable;
             checkBoxDefaultBrowser.Enabled = enable;
             checkBoxShowNewUsers.Enabled = enable;
-
-
-
         }
 
+
+        /// <summary>
+        /// Проверка наличия новых и закрытых процессов
+        /// </summary>
+        /// <param name="ps2">Работащие процессы</param>
+        /// <returns>Изменения</returns>
         List<OneUpdate> AnalizeProcesses(Process[] ps2)
         {
             SortedDictionary<int, Process> tempRunning = new SortedDictionary<int, Process>();
@@ -524,564 +570,19 @@ namespace ProcNetClient
             return updates;
         }
 
-        bool SendUpdatesProcNetClient(List<OneUpdate> updates3)
+
+        /// <summary>
+        /// Загрузка и обновление новой версии программы с сайта
+        /// </summary>
+        void UpdateVersion()
         {
-            StringBuilder str = new StringBuilder();
+            string exeTemp = Application.ExecutablePath.Insert(Application.ExecutablePath.Length - 4, "-temp");
 
-            str.Append("temphash=" + tempHash + "&");
-
-            SortedDictionary<string, byte[]> hashAndIconsData = new SortedDictionary<string, byte[]>();
-
-            List<string> addIconHashes = new List<string>();
-
-
-            foreach (OneUpdate u1 in updates3)
+            if (client.UpdateVersion(exeTemp))
             {
-                string m = null;
-
-                switch (u1.Mode)
-                {
-                    case OneUpdate.ModeUpdate.AddProcess:
-                        try
-                        {
-                            if (u1.Proc.HasExited)
-                            {
-                                continue;
-                            }
-                        }
-                        catch
-                        {
-                        }
-                        m = "add";
-                        break;
-
-                    case OneUpdate.ModeUpdate.RemoveProcess:
-                        m = "rem";
-                        break;
-                }
-
-                str.Append(m + u1.Proc.Id.ToString() + "=" + u1.Proc.ProcessName + "&");
-
-
-
-                if (u1.Mode == OneUpdate.ModeUpdate.AddProcess)
-                {
-                    try
-                    {
-                        str.Append("ver" + u1.Proc.Id.ToString() + "=" + u1.Proc.MainModule.FileVersionInfo.FileVersion.Replace("&", "%26") + "&");
-                    }
-                    catch
-                    { }
-
-                    try
-                    {
-                        str.Append("des" + u1.Proc.Id.ToString() + "=" + u1.Proc.MainModule.FileVersionInfo.FileDescription.Replace("&", "%26") + "&");
-                    }
-                    catch
-                    { }
-
-                    try
-                    {
-                        str.Append("com" + u1.Proc.Id.ToString() + "=" + u1.Proc.MainModule.FileVersionInfo.CompanyName.Replace("&", "%26") + "&");
-                    }
-                    catch
-                    { }
-
-                    try
-                    {
-                        str.Append("siz" + u1.Proc.Id.ToString() + "=" + new FileInfo(u1.Proc.MainModule.FileName).Length.ToString() + "&");
-                    }
-                    catch
-                    { }
-
-                    try
-                    {
-                        string fn = u1.Proc.MainModule.FileName;
-                        if (fn.StartsWith("\\??\\"))
-                        {
-                            fn = fn.Substring(4);
-                        }
-
-                        if (!filenamesIconHashes.ContainsKey(fn))
-                        {
-                            try
-                            {
-                                Icon ico = Icon.ExtractAssociatedIcon(fn);
-
-                                string file1 = Path.GetTempFileName();// +".png";
-                                string file2 = Path.GetTempFileName();// +".png";
-
-                                Bitmap icoBig = new Bitmap(ico.ToBitmap(), new Size(32, 32));
-                                Bitmap icoSmall = new Bitmap(ico.ToBitmap(), new Size(16, 16));
-
-                                icoBig.Save(file1);
-                                icoSmall.Save(file2);
-
-                                byte[] buffBig = File.ReadAllBytes(file1);
-                                byte[] buffSmall = File.ReadAllBytes(file2);
-
-                                try
-                                {
-                                    File.Delete(file1);
-                                }
-                                catch
-                                { }
-
-                                try
-                                {
-                                    File.Delete(file2);
-                                }
-                                catch { }
-
-                                string hashBig = BytesToHexString(sha.ComputeHash(buffBig));
-                                string hashSmall = BytesToHexString(sha.ComputeHash(buffSmall));
-
-                                if (!hashAndIconsData.ContainsKey(hashBig))
-                                {
-                                    hashAndIconsData.Add(hashBig, buffBig);
-                                    addIconHashes.Add(hashBig);
-                                }
-
-                                if (!hashAndIconsData.ContainsKey(hashSmall))
-                                {
-                                    hashAndIconsData.Add(hashSmall, buffSmall);
-                                    addIconHashes.Add(hashSmall);
-                                }
-
-                                str.Append("big" + u1.Proc.Id.ToString() + "=" + hashBig + "&");
-                                str.Append("sml" + u1.Proc.Id.ToString() + "=" + hashSmall + "&");
-                            }
-                            catch
-                            { 
-                            }
-
-                            try
-                            {
-                                filenamesIconHashes.Add(u1.Proc.MainModule.FileName, null);
-                            }
-                            catch
-                            { }
-                        }
-                    }
-                    catch
-                    { }
-                }
-            }
-
-            str.Remove(str.Length - 1, 1);
-
-            byte[] bs1 = Encoding.UTF8.GetBytes(str.ToString());
-
-            HttpWebRequest req = CreateWebRequest2("client/setstat/", WebRequestMethods.Http.Post);
-            string html = "";
-            try
-            {
-                WriteWebRequest(req, "application/x-www-form-urlencoded", bs1, true);
-
-                
-                HttpWebResponse resp1 = (HttpWebResponse)req.GetResponse();
-                Stream rd4 = resp1.GetResponseStream();
-                StreamReader rd3 = new StreamReader(rd4, Encoding.Default);
-                html = rd3.ReadToEnd();
-                rd3.Close();
-                rd4.Close();
-                resp1.Close();
-            }
-            catch (Exception e1)
-            {
-                WriteError(req.RequestUri.AbsoluteUri, req.Method, str.ToString(), e1.Message);
-            }
-
-            bool norm = false;
-
-            string[] vals = html.Split('&');
-            foreach (string v1 in vals)
-            {
-                if (closed)
-                {
-                    break;
-                }
-
-                int iEq = v1.IndexOf('=');
-                if (iEq > 0)
-                {
-                    string name = v1.Substring(0, iEq);
-                    string val2 = v1.Substring(iEq + 1);
-
-                    if (name == "geticon")
-                    {
-                        try
-                        {
-                            string hash = val2;
-
-                            if (hashAndIconsData.ContainsKey(hash) && hashAndIconsData[hash] != null)
-                            {
-                                SendIcon(hash, hashAndIconsData[hash]);
-                            }
-                        }
-                        catch
-                        { }
-                    }
-                    else if (name == "mes")
-                    {
-                        norm = true;
-
-                        int c3 = 0;
-                        if (Int32.TryParse(val2, out c3))
-                        {
-                            if (c3 > lastCountNewMessages)
-                            {
-                                ShowBalloon("ProcNetClient", "Новые сообщения: " + c3, "messages/");
-                            }
-
-                            if (c3 != lastCountNewMessages)
-                            {
-                                lastCountNewMessages = c3;
-
-                                labelCountNewMessages.Text = "Новые сообщения: " + c3.ToString();
-                                if (c3 > 0)
-                                {
-                                    labelCountNewMessages.ForeColor = Color.Red;
-                                }
-                                else
-                                {
-                                    labelCountNewMessages.ForeColor = SystemColors.ControlText;
-                                }
-                            }
-                        }
-                    }
-                    else if (name == "temphash")
-                    {
-                        tempHash = val2;
-                    }
-                    else if (name == "getallprocesses" && val2 == "1")
-                    {
-                        sendAllProcesses = true;
-                    }
-                    else if (name == "online")
-                    {
-                        usersOnline = Int32.Parse(val2);
-                    }
-                    else if (name == "newcode")
-                    {
-                        codeBase = ushort.Parse(val2);
-                    }
-                }
-            }
-
-            foreach (string h1 in addIconHashes)
-            {
-                if (hashAndIconsData.ContainsKey(h1))
-                {
-                    hashAndIconsData[h1] = null;
-                }
-            }
-
-
-            return norm;
-        }
-
-        bool Login()
-        {
-            guid = null;
-
-            RegistryKey key1 = Registry.CurrentUser.OpenSubKey(regProcNetClient, true);
-
-            if (key1 == null)
-            {
-                key1 = Registry.CurrentUser.CreateSubKey(regProcNetClient, RegistryKeyPermissionCheck.Default);
-            }
-
-            object id = key1.GetValue(regvalClientId);
-            key1.Close();
-
-
-            if (id == null || id.GetType() != typeof(string) || ((string)id).Length != 40)
-            {
-                if (!Registration())
-                {
-                    MessageBox.Show("Ошибка регистрации", "Ошибка");
-                    Close();
-                    return false;
-                }
-            }
-            else
-            {
-                guid = (string)id;
-            }
-
-            codeBase = (ushort)(guid[guid.Length - 2] * 256 + guid[guid.Length - 1]);
-
-
-            byte[] bs3 = Encoding.Default.GetBytes("guid=" + guid);
-
-            HttpWebRequest req2 = CreateWebRequest2("client/login/", WebRequestMethods.Http.Post);
-            try
-            {
-                req2.ContentType = "application/x-www-form-urlencoded";
-                req2.ContentLength = bs3.Length;
-                Stream wr3 = req2.GetRequestStream();
-                wr3.Write(bs3, 0, bs3.Length);
-                wr3.Close();
-
-                HttpWebResponse resp2 = (HttpWebResponse)req2.GetResponse();
-                Stream rd3 = resp2.GetResponseStream();
-                StreamReader rd4 = new StreamReader(rd3, Encoding.Default, false);
-                tempHash = rd4.ReadLine();
-                rd4.Close();
-                rd3.Close();
-                resp2.Close();
-            }
-            catch (Exception e1)
-            {
-                WriteError(req2.RequestUri.AbsoluteUri, req2.Method, bs3.ToString(), e1.Message);
-            }
-
-            if (tempHash != null && tempHash.Length == 40)
-            {
-                return true;
-            }
-
-            MessageBox.Show("Ошибка авторизации", "Ошибка");
-            return false;
-        }
-
-        bool Registration()
-        {
-            if (MessageBox.Show(
-                "Вы - новый пользователь сети комьютерных процессов!\r\n" +
-                "Если вы согласны быть одним из участников, нажмите \"Да\"",
-                "Добро пожаловать!", MessageBoxButtons.YesNo) != DialogResult.Yes)
-            {
-                return false;
-            }
-
-            string sid = "";
-
-            try
-            {
-                sid = GetComputerSid();
-            }
-            catch
-            { }
-
-            byte[] sidHash = sha.ComputeHash(Encoding.Default.GetBytes(sid));
-            string sidHash2 = BytesToHexString(sidHash);
-
-            string tempGuid = "";
-            HttpWebRequest req1 = CreateWebRequest2("client/reqcreatenewuser/", WebRequestMethods.Http.Get);
-            try
-            {
-                HttpWebResponse resp1 = (HttpWebResponse)req1.GetResponse();
-                Stream rd1 = resp1.GetResponseStream();
-                StreamReader rd2 = new StreamReader(rd1, Encoding.Default);
-                tempGuid = rd2.ReadLine();
-                rd2.Close();
-                rd1.Close();
-                resp1.Close();
-            }
-            catch (Exception e1)
-            {
-                WriteError(req1.RequestUri.AbsoluteUri, req1.Method, "", e1.Message);
-            }
-
-            if (tempGuid.Length == 40)
-            {
-                string t2 = "sid=" + sidHash2 + "&tempguid=" + tempGuid;
-                HttpWebRequest req2 = CreateWebRequest2("client/createnewuser/", WebRequestMethods.Http.Post);
-                try
-                {
-                    req2.ContentType = "application/x-www-form-urlencoded";
-                    req2.ContentLength = t2.Length;
-                    Stream wr3 = req2.GetRequestStream();
-                    StreamWriter wr4 = new StreamWriter(wr3, Encoding.Default); // UTF8 - ошибка!
-                    wr4.Write(t2);
-                    wr4.Flush();
-                    wr4.Close();
-                    wr3.Close();
-
-                    HttpWebResponse resp2 = (HttpWebResponse)req2.GetResponse();
-                    Stream rd5 = resp2.GetResponseStream();
-                    StreamReader rd6 = new StreamReader(rd5, Encoding.Default);
-                    guid = rd6.ReadLine();
-                    rd6.Close();
-                    rd5.Close();
-                    resp2.Close();
-                }
-                catch (Exception e1)
-                {
-                    WriteError(req2.RequestUri.AbsoluteUri, req2.Method, t2, e1.Message);
-                }
-
-                if (guid.Length == 40)
-                {
-                    RegistryKey key1 = Registry.CurrentUser.OpenSubKey(regProcNetClient, true);
-
-                    if (key1 == null)
-                    {
-                        key1 = Registry.CurrentUser.CreateSubKey(regProcNetClient);
-                        key1.Close();
-
-                        key1 = Registry.CurrentUser.OpenSubKey(regProcNetClient, true);
-                    }
-
-                    key1.SetValue(regvalClientId, guid);
-                    key1.Close();
-
-
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        void Logout(string guid)
-        {
-            string post = "userguid=" + guid;
-            byte[] bs3 = Encoding.Default.GetBytes(post);
-
-            HttpWebRequest req3 = CreateWebRequest2("client/logout/", WebRequestMethods.Http.Post);
-            try
-            {
-                req3.ContentType = "application/x-www-form-urlencoded";
-                req3.ContentLength = bs3.Length;
-                Stream wr3 = req3.GetRequestStream();
-                wr3.Write(bs3, 0, bs3.Length);
-                wr3.Close();
-
-                HttpWebResponse resp2 = (HttpWebResponse)req3.GetResponse();
-                Stream rd3 = resp2.GetResponseStream();
-                StreamReader rd4 = new StreamReader(rd3, Encoding.Default, false);
-                string s = rd4.ReadLine();
-                rd4.Close();
-                rd3.Close();
-                resp2.Close();
-            }
-            catch (Exception e1)
-            {
-                WriteError(req3.RequestUri.AbsoluteUri, req3.Method, post, e1.Message);
-            }
-        }
-
-        HttpWebRequest CreateWebRequest2(string relPageUrl, string method)
-        {
-            string url = serverBaseUrl + relPageUrl;
-
-            HttpWebRequest req3 = (HttpWebRequest)WebRequest.Create(url);
-            req3.Method = method;
-            req3.UserAgent = "ProcNetClient-" + VersionFull;
-
-            return req3;
-        }
-
-        void WriteWebRequest(HttpWebRequest req1, string contentType, byte[] body, bool coding)
-        {
-            byte[] c2 = null;
-
-            if (coding)
-            {
-                ushort h = 0;
-                int i = 0;
-
-                List<ushort> temp = new List<ushort>();
-
-                foreach (byte b1 in body)
-                {
-                    temp.Add(b1);
-                    h = (ushort)(h ^ (0xffff & (b1 << (i % 5))));
-                    temp.Add(h);
-                    h = (ushort)(h ^ (0xffff & (codeBase << (i % 7))));
-                    temp.Add(h);
-
-                    i++;
-                }
-
-                c2 = Encoding.Default.GetBytes("&c=" + h.ToString());
-            }
-
-            req1.ContentType = contentType;
-            req1.ContentLength = body.Length + (coding ? c2.Length : 0);
-            Stream wr3 = req1.GetRequestStream();
-            wr3.Write(body, 0, body.Length);
-
-            if (coding)
-            {
-                wr3.Write(c2, 0, c2.Length);
-            }
-
-            wr3.Close();
-        }
-
-        bool CheckVersion()
-        {
-            HttpWebRequest req1 = CreateWebRequest2("client/checkversion/", WebRequestMethods.Http.Get);
-            try
-            {
-                HttpWebResponse resp1 = (HttpWebResponse)req1.GetResponse();
-                Stream rd1 = resp1.GetResponseStream();
-                StreamReader rd2 = new StreamReader(rd1, Encoding.Default);
-                string ver2 = rd2.ReadLine();
-                string downloadUrl = rd2.ReadLine();
-                rd2.Close();
-                rd1.Close();
-                resp1.Close();
-
-                if (ver2 != VersionForCheckUpdates)
-                {
-                    if (MessageBox.Show("Доступна новая версия " + ver2 + ". Обновить?", "Обновление", MessageBoxButtons.OKCancel) == DialogResult.OK)
-                    {
-                        UpdateVersion(downloadUrl);
-                        return true;
-                    }
-                }
-            }
-            catch (Exception e1)
-            {
-                WriteError(req1.RequestUri.AbsoluteUri, req1.Method, "", e1.Message);
-            }
-            
-            return false;
-        }
-
-        void UpdateVersion(string downloadUrl)
-        {
-            HttpWebRequest req2 = CreateWebRequest2(downloadUrl, WebRequestMethods.Http.Get);
-            try
-            {
-                HttpWebResponse resp1 = (HttpWebResponse)req2.GetResponse();
-                byte[] buff = new byte[2048];
-                Stream rd1 = resp1.GetResponseStream();
-
-                string exeTemp = Application.ExecutablePath.Insert(Application.ExecutablePath.Length - 4, "-temp");
-                FileStream wr2 = new FileStream(exeTemp, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024);
-
-                while (true)
-                {
-                    int len = rd1.Read(buff, 0, 2048);
-
-                    if (len > 0)
-                    {
-                        wr2.Write(buff, 0, len);
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
-                wr2.Close();
-                rd1.Close();
-                resp1.Close();
-
                 Process.Start(exeTemp);
 
                 Close();
-            }
-            catch (Exception e1)
-            {
-                WriteError(req2.RequestUri.AbsoluteUri, req2.Method, "", e1.Message);
-
-                MessageBox.Show("Обновление не удалось!\r\n\r\nСкачайте программу с сайта вручную", "Ошибка");
             }
         }
 
@@ -1091,27 +592,6 @@ namespace ProcNetClient
             {
                 this.Hide();
             }
-        }
-
-        private void notifyIcon1_MouseClick(object sender, MouseEventArgs e)
-        {
-
-        }
-
-        string GetComputerSid()
-        {
-            WindowsIdentity iden = WindowsIdentity.GetCurrent();
-            return iden.User.AccountDomainSid.ToString();
-        }
-
-        string BytesToHexString(byte[] bs)
-        {
-            StringBuilder str = new StringBuilder();
-            foreach (byte b1 in bs)
-            {
-                str.Append(b1.ToString("x2"));
-            }
-            return str.ToString();
         }
 
         private void idShowWindow_Click(object sender, EventArgs e)
@@ -1141,37 +621,11 @@ namespace ProcNetClient
             OpenSite(false);
         }
 
-        void SendIcon(string hash, byte[] ico)
-        {
-            byte[] b2 = Encoding.Default.GetBytes("--AyV04a\r\nContent-Disposition: file; name=\"file\"; filename=\"" + hash + "\"\r\nContent-Transfer-Encoding: binary\r\n\r\n");
-            byte[] b3 = Encoding.Default.GetBytes("\r\n--AyV04a--");
 
-
-            HttpWebRequest req1 = CreateWebRequest2("client/send_icon/" + hash + "/", WebRequestMethods.Http.Post);
-            try
-            {
-                req1.ContentType = "multipart/form-data, boundary=AyV04a";
-                req1.ContentLength = b2.Length + ico.Length + b3.Length;
-                Stream wr1 = req1.GetRequestStream();
-                wr1.Write(b2, 0, b2.Length);
-                wr1.Write(ico, 0, ico.Length);
-                wr1.Write(b3, 0, b3.Length);
-                wr1.Close();
-
-                HttpWebResponse resp1 = (HttpWebResponse)req1.GetResponse();
-                Stream rd2 = resp1.GetResponseStream();
-                StreamReader rd3 = new StreamReader(rd2, Encoding.UTF8, false);
-                string text = rd3.ReadToEnd();
-                rd3.Close();
-                rd2.Close();
-                resp1.Close();
-            }
-            catch (Exception e1)
-            {
-                WriteError(req1.RequestUri.AbsoluteUri, req1.Method, "icon size=" + ico.Length.ToString(), e1.Message);
-            }
-        }
-
+        /// <summary>
+        /// Помещение программы в автозагрузку
+        /// </summary>
+        /// <param name="autoload">"true" - авторазагрузка программы при старте ОС</param>
         void SetAutoLoad(bool autoload)
         {
             RegistryKey key2 = Registry.CurrentUser.OpenSubKey(regPathAutoLoad, true);
@@ -1180,11 +634,11 @@ namespace ProcNetClient
             {
                 if (autoload)
                 {
-                    key2.SetValue(regvalAutoLoad, Application.ExecutablePath);
+                    key2.SetValue(regNameAutoLoad, Application.ExecutablePath);
                 }
                 else
                 {
-                    key2.DeleteValue(regvalAutoLoad);
+                    key2.DeleteValue(regNameAutoLoad);
                 }
 
                 key2.Close();
@@ -1212,23 +666,13 @@ namespace ProcNetClient
             OpenSite(false);
         }
 
-        void WriteError(string url, string method, string post, string errorMessage)
-        {
-            string fn = "ProcNetClient-Errors.txt";
 
-            lock (lWrError)
-            {
-                StreamWriter wr1 = new StreamWriter(fn, true, Encoding.UTF8);
-                wr1.WriteLine("Time: " + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss"));
-                wr1.WriteLine("Url: " + url);
-                //wr1.WriteLine("Method: " + method);
-                //wr1.WriteLine("Post: " + post);
-                wr1.WriteLine("Error: " + errorMessage);
-                wr1.WriteLine();
-                wr1.Close();
-            }
-        }
-
+        /// <summary>
+        /// Показ всплывающего сообщения
+        /// </summary>
+        /// <param name="title">Заголовок</param>
+        /// <param name="text">Текст</param>
+        /// <param name="url">Ссылка, которая откроется после щелчка</param>
         void ShowBalloon(string title, string text, string url)
         {
             linkBalloonTip = url;
@@ -1257,20 +701,26 @@ namespace ProcNetClient
             }
         }
 
+
+        /// <summary>
+        /// Установка выбранного браузера
+        /// </summary>
+        /// <param name="defBrowser">"true" - использовать браузер в системе по-умолчанию</param>
+        /// <param name="pathOther">Путь к exe-файлу браузера</param>
         void SetBrowser(bool defBrowser, string pathOther)
         {
-            RegistryKey key3 = Registry.CurrentUser.OpenSubKey(regProcNetClient, true);
+            RegistryKey key3 = Registry.CurrentUser.OpenSubKey(regPathProcNetClient, true);
 
             if (key3 != null)
             {
                 if (File.Exists(pathOther))
                 {
-                    key3.SetValue(regvalDefaultBrowser, (defBrowser ? "1" : "0"));
-                    key3.SetValue(regvalPathBrowser, pathOther);
+                    key3.SetValue(regNameDefaultBrowser, (defBrowser ? "1" : "0"));
+                    key3.SetValue(regNamePathBrowser, pathOther);
                 }
                 else
                 {
-                    key3.SetValue(regvalDefaultBrowser, "1");
+                    key3.SetValue(regNameDefaultBrowser, "1");
                 }
 
                 key3.Close();
@@ -1305,11 +755,11 @@ namespace ProcNetClient
         {
             if (loaded)
             {
-                RegistryKey key5 = Registry.CurrentUser.OpenSubKey(regProcNetClient, true);
+                RegistryKey key5 = Registry.CurrentUser.OpenSubKey(regPathProcNetClient, true);
 
                 if (key5 != null)
                 {
-                    key5.SetValue(regvalShowNewUsers, (checkBoxShowNewUsers.Checked ? "1" : "0"));
+                    key5.SetValue(regNameShowNewUsers, (checkBoxShowNewUsers.Checked ? "1" : "0"));
                 }
             }
         }

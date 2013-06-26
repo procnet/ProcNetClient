@@ -6,6 +6,9 @@ using System.Text;
 
 namespace ProcNetClient
 {
+    /// <summary>
+    /// Обновление информации о процессе
+    /// </summary>
     public class OneUpdate
     {
         public enum ModeUpdate { AddProcess, RemoveProcess };
